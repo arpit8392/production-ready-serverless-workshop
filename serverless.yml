@@ -1,79 +1,61 @@
-# Welcome to Serverless!
-#
-# This file is the main config file for your service.
-# It's very minimal at this point and uses default values.
-# You can always add more config options for more control.
-# We've included some commented out config examples here.
-# Just uncomment any of them to get that config option.
-#
-# For full config options, check the docs:
-#    docs.serverless.com
-#
-# Happy Coding!
-
 service: workshop-${self:custom.name}
-# app and org for use with dashboard.serverless.com
-#app: your-app-name
-#org: your-org-name
-
-# You can pin your service to only deploy with a specific Serverless version
-# Check out our docs for more details
 frameworkVersion: "3"
 
 custom:
+  lumigo:
+    token: t_31967c81a648450b9118f
+    nodePackageManager: npm
+  minify: true
+  external:
+    - "@aws-sdk"
+  logLevel:
+    prod: ERROR
+    default: INFO
   name: arpitnamdev
   export-env:
     overwrite: true
     file: .env
+  exportOutputs:
+    include:
+      - E2eTestQueueUrl
+      - CognitoUserPoolServerClientId
+    output:
+      file: ./.env.cfnoutputs
+  serverless-iam-roles-per-function:
+    defaultInherit: true
 
 provider:
   name: aws
   runtime: nodejs18.x
+  tracing:
+    apiGateway: true
+    lambda: true
   iam:
     role:
       statements:
-        - Effect: "Allow"
-          Action: dynamodb:scan
-          Resource: !GetAtt RestaurantsTable.Arn
-        - Effect: "Allow"
-          Action: execute-api:Invoke
-          Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/${sls:stage}/GET/restaurants
+        - Effect: Allow
+          Action:
+            - "xray:PutTraceSegments"
+            - "xray:PutTelemetryRecords"
+          Resource: "*"
   environment:
     rest_api_url: !Sub https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${sls:stage}
+    serviceName: ${self:service}
+    stage: ${sls:stage}
+    middy_cache_enabled: true
+    middy_cache_expire_milliseconds: 60000
+    ssmStage: ${param:ssmStage, sls:stage}
+    POWERTOOLS_LOG_LEVEL: ${self:custom.logLevel.${sls:stage}, self:custom.logLevel.default}
+    POWERTOOLS_LOGGER_SAMPLE_RATE: 0.1
+    POWERTOOLS_LOGGER_LOG_EVENT: true
 
-# you can overwrite defaults here
-#  stage: dev
-#  region: us-east-1
+stepFunctions:
+  stateMachines:
+    orderFlow:
+      definition: ${file(state_machines/order-flow.yml)}
 
-# you can add statements to the Lambda function's IAM Role here
-#  iam:
-#    role:
-#      statements:
-#        - Effect: "Allow"
-#          Action:
-#            - "s3:ListBucket"
-#          Resource: { "Fn::Join" : ["", ["arn:aws:s3:::", { "Ref" : "ServerlessDeploymentBucket" } ] ]  }
-#        - Effect: "Allow"
-#          Action:
-#            - "s3:PutObject"
-#          Resource:
-#            Fn::Join:
-#              - ""
-#              - - "arn:aws:s3:::"
-#                - "Ref" : "ServerlessDeploymentBucket"
-#                - "/*"
-
-# you can define service wide environment variables here
-#  environment:
-#    variable1: value1
-
-# you can add packaging information here
-#package:
-#  patterns:
-#    - '!exclude-me.js'
-#    - '!exclude-me-dir/**'
-#    - include-me.js
-#    - include-me-dir/**
+package:
+  individually: true
 
 functions:
   get-index:
@@ -86,7 +68,14 @@ functions:
       RESTAURANTS_API: !Sub https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${sls:stage}/restaurants
       COGNITO_USER_POOL_ID: !Ref CognitoUserPool
       COGNITO_CLIENT_ID: !Ref WebCognitoUserPoolClient
-      COGNITO_SERVER_CLIENT_ID: !Ref ServerCognitoUserPoolClient
+      orders_api: !Sub https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${sls:stage}/orders
+    iamRoleStatements:
+      - Effect: Allow
+        Action: execute-api:Invoke
+        Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/${sls:stage}/GET/restaurants
+    package:
+      include:
+        - static/*
 
   get-restaurants:
     handler: functions/get-restaurants.handler
@@ -98,6 +87,14 @@ functions:
     environment:
       DEFAULT_RESULTS: 8
       RESTAURANTS_TABLE: !Ref RestaurantsTable
+    iamRoleStatements:
+      - Effect: Allow
+        Action: dynamodb:scan
+        Resource: !GetAtt RestaurantsTable.Arn
+      - Effect: Allow
+        Action: ssm:GetParameters*
+        Resource:
+          - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${self:service}/${param:ssmStage, sls:stage}/get-restaurants/config
 
   search-restaurants:
     handler: functions/search-restaurants.handler
@@ -112,48 +109,80 @@ functions:
     environment:
       DEFAULT_RESULTS: 8
       RESTAURANTS_TABLE: !Ref RestaurantsTable
-#    The following are a few example events you can configure
-#    NOTE: Please make sure to change your handler code to work with those events
-#    Check the event documentation for details
-#    events:
-#      - httpApi:
-#          path: /users/create
-#          method: get
-#      - websocket: $connect
-#      - s3: ${env:BUCKET}
-#      - schedule: rate(10 minutes)
-#      - sns: greeter-topic
-#      - stream: arn:aws:dynamodb:region:XXXXXX:table/foo/stream/1970-01-01T00:00:00.000
-#      - alexaSkill: amzn1.ask.skill.xx-xx-xx-xx
-#      - alexaSmartHome: amzn1.ask.skill.xx-xx-xx-xx
-#      - iot:
-#          sql: "SELECT * FROM 'some_topic'"
-#      - cloudwatchEvent:
-#          event:
-#            source:
-#              - "aws.ec2"
-#            detail-type:
-#              - "EC2 Instance State-change Notification"
-#            detail:
-#              state:
-#                - pending
-#      - cloudwatchLog: '/aws/lambda/hello'
-#      - cognitoUserPool:
-#          pool: MyUserPool
-#          trigger: PreSignUp
-#      - alb:
-#          listenerArn: arn:aws:elasticloadbalancing:us-east-1:XXXXXX:listener/app/my-load-balancer/50dc6c495c0c9188/
-#          priority: 1
-#          conditions:
-#            host: example.com
-#            path: /hello
 
-#    Define function environment variables here
-#    environment:
-#      variable2: value2
+    iamRoleStatements:
+      - Effect: Allow
+        Action: dynamodb:scan
+        Resource: !GetAtt RestaurantsTable.Arn
+      - Effect: Allow
+        Action: ssm:GetParameters*
+        Resource:
+          - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${self:service}/${param:ssmStage, sls:stage}/search-restaurants/config
+          - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${self:service}/${param:ssmStage, sls:stage}/search-restaurants/secretString
+      - Effect: Allow
+        Action: kms:Decrypt
+        Resource: ${ssm:/${self:service}/${param:ssmStage, sls:stage}/kmsArn}
 
-# you can add CloudFormation resource templates here
+  place-order:
+    handler: functions/place-order.handler
+    events:
+      - http:
+          path: /orders
+          method: post
+          authorizer:
+            name: CognitoAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: !GetAtt CognitoUserPool.Arn
+    environment:
+      bus_name: !Ref EventBus
+    iamRoleStatements:
+      - Effect: Allow
+        Action: events:PutEvents
+        Resource: !GetAtt EventBus.Arn
+
+  notify-restaurant:
+    handler: functions/notify-restaurant.handler
+    events:
+      - eventBridge:
+          eventBus: !Ref EventBus
+          pattern:
+            source:
+              - big-mouth
+            detail-type:
+              - order_placed
+    environment:
+      bus_name: !Ref EventBus
+      restaurant_notification_topic: !Ref RestaurantNotificationTopic
+      idempotency_table: !Ref IdempotencyTable
+    destinations:
+      onFailure:
+        type: sqs
+        arn: !GetAtt OnFailureQueue.Arn
+    iamRoleStatements:
+      - Effect: Allow
+        Action: events:PutEvents
+        Resource: !GetAtt EventBus.Arn
+      - Effect: Allow
+        Action: sns:Publish
+        Resource: !Ref RestaurantNotificationTopic
+      - Effect: Allow
+        Action:
+          - dynamodb:PutItem
+          - dynamodb:GetItem
+          - dynamodb:UpdateItem
+          - dynamodb:DeleteItem
+        Resource: !GetAtt IdempotencyTable.Arn
+      - Effect: Allow
+        Action: sqs:SendMessage
+        Resource: !GetAtt OnFailureQueue.Arn
+
 resources:
+  Conditions:
+    IsE2eTest:
+      Fn::StartsWith:
+        - ${sls:stage}
+        - dev
+
   Resources:
     RestaurantsTable:
       Type: AWS::DynamoDB::Table
@@ -222,6 +251,170 @@ resources:
           - ALLOW_REFRESH_TOKEN_AUTH
         PreventUserExistenceErrors: ENABLED
 
+    ServiceUrlParameter:
+      Type: AWS::SSM::Parameter
+      Properties:
+        Type: String
+        Name: /${self:service}/${sls:stage}/serviceUrl
+        Value:
+          Fn::Join:
+            - ""
+            - - "https://"
+              - Ref: ApiGatewayRestApi
+              - .execute-api.${aws:region}.amazonaws.com/${sls:stage}
+
+    EventBus:
+      Type: AWS::Events::EventBus
+      Properties:
+        Name: order_events_${sls:stage}_${self:custom.name}
+
+    RestaurantNotificationTopic:
+      Type: AWS::SNS::Topic
+
+    E2eTestQueue:
+      Type: AWS::SQS::Queue
+      Condition: IsE2eTest
+      Properties:
+        MessageRetentionPeriod: 60
+        VisibilityTimeout: 1
+
+    E2eTestQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Condition: IsE2eTest
+      Properties:
+        Queues:
+          - !Ref E2eTestQueue
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal: "*"
+              Action: SQS:SendMessage
+              Resource: !GetAtt E2eTestQueue.Arn
+              Condition:
+                ArnEquals:
+                  aws:SourceArn: !Ref RestaurantNotificationTopic
+            - Effect: Allow
+              Principal: "*"
+              Action: SQS:SendMessage
+              Resource: !GetAtt E2eTestQueue.Arn
+              Condition:
+                ArnEquals:
+                  aws:SourceArn: !GetAtt E2eTestEventBridgeRule.Arn
+
+    E2eTestSnsSubscription:
+      Type: AWS::SNS::Subscription
+      Condition: IsE2eTest
+      Properties:
+        Protocol: sqs
+        Endpoint: !GetAtt E2eTestQueue.Arn
+        RawMessageDelivery: false
+        TopicArn: !Ref RestaurantNotificationTopic
+        Region: !Ref AWS::Region
+
+    E2eTestEventBridgeRule:
+      Type: AWS::Events::Rule
+      Condition: IsE2eTest
+      Properties:
+        EventBusName: !Ref EventBus
+        EventPattern:
+          source: ["big-mouth"]
+        State: ENABLED
+        Targets:
+          - Arn: !GetAtt E2eTestQueue.Arn
+            Id: e2eTestQueue
+            InputTransformer:
+              InputPathsMap:
+                source: "$.source"
+                detailType: "$.detail-type"
+                detail: "$.detail"
+              InputTemplate: !Sub >
+                {
+                  "event": {
+                    "source": <source>,
+                    "detail-type": <detailType>,
+                    "detail": <detail>
+                  },
+                  "eventBusName": "${EventBus}"
+                }
+
+    IdempotencyTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        TimeToLiveSpecification:
+          Enabled: true
+          AttributeName: expiration
+
+    OnFailureQueue:
+      Type: AWS::SQS::Queue
+
+    AlarmTopic:
+      Type: AWS::SNS::Topic
+
+    AlarmTopicSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        Endpoint: serverlessbeast812@gmail.com
+        Protocol: email
+        TopicArn: !Ref AlarmTopic
+
+    OnFailureQueueAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: "[${sls:stage}] [NotifyRestaurant function] Failed events detected in OnFailure destination"
+        MetricName: ApproximateNumberOfMessagesVisible
+        Namespace: AWS/SQS
+        Statistic: Maximum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 0
+        ComparisonOperator: GreaterThanThreshold
+        TreatMissingData: notBreaching
+        Dimensions:
+          - Name: QueueName
+            Value: !GetAtt OnFailureQueue.QueueName
+        AlarmActions:
+          - !Ref AlarmTopic
+
+    DestinationDeliveryFailuresAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: "[${sls:stage}] [NotifyRestaurant function] Failed to deliver failed events to OnFailure destination"
+        MetricName: DestinationDeliveryFailures
+        Namespace: AWS/Lambda
+        Statistic: Average
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 0
+        ComparisonOperator: GreaterThanThreshold
+        TreatMissingData: notBreaching
+        Dimensions:
+          - Name: FunctionName
+            Value: !Ref NotifyDashrestaurantLambdaFunction
+        AlarmActions:
+          - !Ref AlarmTopic
+
+    OrdersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+
+    UserNotificationTopic:
+      Type: AWS::SNS::Topic
+
   Outputs:
     RestaurantsTableName:
       Value: !Ref RestaurantsTable
@@ -238,5 +431,24 @@ resources:
     CognitoUserPoolServerClientId:
       Value: !Ref ServerCognitoUserPoolClient
 
+    EventBusName:
+      Value: !Ref EventBus
+
+    RestaurantNotificationTopicName:
+      Value: !GetAtt RestaurantNotificationTopic.TopicName
+
+    RestaurantNotificationTopicArn:
+      Value: !Ref RestaurantNotificationTopic
+
+    E2eTestQueueUrl:
+      Condition: IsE2eTest
+      Value: !Ref E2eTestQueue
+
 plugins:
   - serverless-export-env
+  - serverless-export-outputs
+  - serverless-plugin-extrinsic-functions
+  - serverless-iam-roles-per-function
+  - serverless-step-functions
+  - serverless-esbuild
+  - serverless-lumigo

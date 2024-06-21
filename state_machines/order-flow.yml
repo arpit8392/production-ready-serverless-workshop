@@ -1,0 +1,162 @@
+StartAt: Save order to DynamoDB
+States:
+  Save order to DynamoDB:
+    Type: Task
+    Resource: arn:aws:states:::dynamodb:putItem
+    Parameters:
+      TableName: !Ref OrdersTable
+      Item:
+        id:
+          S.$: "$.order_id"
+        status:
+          S: PLACED
+    ResultPath:
+    Next: Publish ORDER_PLACED event to EventBridge
+  Publish ORDER_PLACED event to EventBridge:
+    Type: Task
+    Resource: arn:aws:states:::events:putEvents
+    Parameters:
+      Entries:
+        - Detail:
+            order_id.$: "$.order_id"
+          DetailType: order_placed
+          EventBusName: !Ref EventBus
+          Source: big-mouth
+    ResultPath:
+    Next: Notify restaurant
+  Notify restaurant:
+    Type: Task
+    Resource: arn:aws:states:::sns:publish.waitForTaskToken
+    Parameters:
+      TopicArn: !Ref RestaurantNotificationTopic
+      Message:
+        order-id.$: "$.order_id"
+        task-token.$: "$$.Task.Token"
+    TimeoutSeconds: 600
+    Catch:
+      - ErrorEquals:
+          - States.Timeout
+        Next: Update order to TIMED_OUT
+        ResultPath: "$.notifyRestaurantError"
+    Next: Choice
+    ResultPath: "$.notifyRestaurantResult"
+  Choice:
+    Type: Choice
+    Choices:
+      - Variable: "$.notifyRestaurantResult.isAccepted"
+        BooleanEquals: true
+        Next: Update order to ACCEPTED
+    Default: Update order to REJECTED
+  Update order to ACCEPTED:
+    Type: Task
+    Resource: arn:aws:states:::dynamodb:updateItem
+    Parameters:
+      TableName: !Ref OrdersTable
+      Key:
+        id:
+          S.$: "$.order_id"
+      UpdateExpression: "SET #status = :status"
+      ExpressionAttributeNames:
+        "#status": status
+      ExpressionAttributeValues:
+        ":status":
+          S: ACCEPTED
+    ResultPath:
+    Next: Publich ORDER_ACCEPTED event to EventBridge
+  Publich ORDER_ACCEPTED event to EventBridge:
+    Type: Task
+    Resource: arn:aws:states:::events:putEvents
+    Parameters:
+      Entries:
+        - Detail:
+            order_id.$: "$.order_id"
+          DetailType: order_accepted
+          EventBusName: !Ref EventBus
+          Source: big-mouth
+    ResultPath:
+    Next: Notify user of order ACCEPTED
+  Notify user of order ACCEPTED:
+    Type: Task
+    Resource: arn:aws:states:::sns:publish
+    Parameters:
+      TopicArn: !Ref UserNotificationTopic
+      Message:
+        order-id.$: "$.order_id"
+    End: true
+    ResultPath:
+  Update order to REJECTED:
+    Type: Task
+    Resource: arn:aws:states:::dynamodb:updateItem
+    Parameters:
+      TableName: !Ref OrdersTable
+      Key:
+        id:
+          S.$: "$.order_id"
+      UpdateExpression: "SET #status = :status"
+      ExpressionAttributeNames:
+        "#status": status
+      ExpressionAttributeValues:
+        ":status":
+          S: REJECTED
+    ResultPath:
+    Next: Publish ORDER_REJECTED event to EventBridge
+  Publish ORDER_REJECTED event to EventBridge:
+    Type: Task
+    Resource: arn:aws:states:::events:putEvents
+    Parameters:
+      Entries:
+        - Detail:
+            order_id.$: "$.order_id"
+          DetailType: order_rejected
+          EventBusName: !Ref EventBus
+          Source: big-mouth
+    ResultPath:
+    Next: Notify user of order REJECTED
+  Notify user of order REJECTED:
+    Type: Task
+    Resource: arn:aws:states:::sns:publish
+    Parameters:
+      TopicArn: !Ref UserNotificationTopic
+      Message:
+        order-id.$: "$.order_id"
+    End: true
+    ResultPath:
+  Update order to TIMED_OUT:
+    Type: Task
+    Resource: arn:aws:states:::dynamodb:updateItem
+    Parameters:
+      TableName: !Ref OrdersTable
+      Key:
+        id:
+          S.$: "$.order_id"
+      UpdateExpression: "SET #status = :status"
+      ExpressionAttributeNames:
+        "#status": status
+      ExpressionAttributeValues:
+        ":status":
+          S: TIMED_OUT
+    ResultPath:
+    Next: Publish ORDER_TIMED_OUT event to EventBridge
+  Publish ORDER_TIMED_OUT event to EventBridge:
+    Type: Task
+    Resource: arn:aws:states:::events:putEvents
+    Parameters:
+      Entries:
+        - Detail:
+            order_id.$: "$.order_id"
+          DetailType: order_timed_out
+          EventBusName: !Ref EventBus
+          Source: big-mouth
+    ResultPath:
+    Next: Notify user of order TIMED_OUT
+  Notify user of order TIMED_OUT:
+    Type: Task
+    Resource: arn:aws:states:::sns:publish
+    Parameters:
+      TopicArn: !Ref UserNotificationTopic
+      Message:
+        order-id.$: "$.order_id"
+    ResultPath:
+    Next: Order timed out
+  Order timed out:
+    Type: Fail

@@ -14,7 +14,7 @@ const an_authenticated_user = async () => {
 	const cognito = new CognitoIdentityProviderClient()
 
 	const userPoolId = process.env.COGNITO_USER_POOL_ID
-	const clientId = process.env.COGNITO_SERVER_CLIENT_ID
+	const clientId = process.env.CognitoUserPoolServerClientId
 
 	const firstName = chance.first({ nationality: 'en' })
 	const lastName = chance.last({ nationality: 'en' })

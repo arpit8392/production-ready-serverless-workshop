@@ -3,8 +3,21 @@ const Mustache = require('mustache')
 const http = require('axios')
 const aws4 = require('aws4')
 const URL = require('url')
+const { Logger } = require('@aws-lambda-powertools/logger')
+const {
+	injectLambdaContext,
+} = require('@aws-lambda-powertools/logger/middleware')
+const { Tracer } = require('@aws-lambda-powertools/tracer')
+const {
+	captureLambdaHandler,
+} = require('@aws-lambda-powertools/tracer/middleware')
+const tracer = new Tracer({ serviceName: process.env.serviceName })
+const middy = require('@middy/core')
+
+const logger = new Logger({ serviceName: process.env.serviceName })
 
 const restaurantsApiRoot = process.env.RESTAURANTS_API
+const ordersApiRoot = process.env.orders_api
 const cognitoUserPoolId = process.env.COGNITO_USER_POOL_ID
 const cognitoClientId = process.env.COGNITO_CLIENT_ID
 const awsRegion = process.env.AWS_REGION
@@ -22,7 +35,7 @@ const days = [
 const template = fs.readFileSync('static/index.html', 'utf-8')
 
 const getRestaurants = async () => {
-	console.log(`loading restaurants from ${restaurantsApiRoot}`)
+	logger.debug('getting restaurants...', { url: restaurantsApiRoot })
 	const url = URL.parse(restaurantsApiRoot)
 	const opts = {
 		host: url.hostname,
@@ -34,11 +47,18 @@ const getRestaurants = async () => {
 		headers: opts.headers,
 	})
 
-	return response.data
+	const data = await response.data
+	tracer.addResponseAsMetadata(data, 'GET /restaurants')
+
+	return data
 }
 
-module.exports.handler = async (event, context) => {
+module.exports.handler = middy(async (event, context) => {
+	logger.setLogLevel('INFO')
+	logger.refreshSampleRateCalculation()
+
 	const restaurants = await getRestaurants()
+	logger.debug('got restaurants', { count: restaurants.length })
 	const dayOfWeek = days[new Date().getDay()]
 
 	const view = {
@@ -48,6 +68,7 @@ module.exports.handler = async (event, context) => {
 		dayOfWeek,
 		restaurants,
 		searchUrl: `${restaurantsApiRoot}/search`,
+		placeOrderUrl: ordersApiRoot,
 	}
 	const html = Mustache.render(template, view)
 	const response = {
@@ -59,4 +80,6 @@ module.exports.handler = async (event, context) => {
 	}
 
 	return response
-}
+})
+	.use(injectLambdaContext(logger))
+	.use(captureLambdaHandler(tracer))

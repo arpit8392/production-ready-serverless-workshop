@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dotEnv": "sls export-env --all",
-    "test": "npm run dotEnv && cross-env TEST_MODE=handler jest --silent",
-    "test:e2e": "npm run dotEnv && cross-env TEST_MODE=http jest"
+    "test": "cross-env TEST_MODE=handler jest",
+    "test:e2e": "cross-env TEST_MODE=http jest"
   },
   "keywords": [],
   "author": "",
@@ -14,17 +14,34 @@
   "devDependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.588.0",
     "@aws-sdk/client-dynamodb": "^3.584.0",
+    "@aws-sdk/client-eventbridge": "^3.596.0",
+    "@aws-sdk/client-sns": "^3.598.0",
+    "@aws-sdk/client-sqs": "^3.598.0",
     "@aws-sdk/lib-dynamodb": "^3.584.0",
     "@types/jest": "^29.5.12",
     "awscred": "^1.5.0",
     "cheerio": "^1.0.0-rc.12",
     "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
+    "esbuild": "^0.20.2",
     "jest": "^29.7.0",
+    "rxjs": "^7.8.1",
     "serverless": "^3.38.0",
-    "serverless-export-env": "^2.2.0"
+    "serverless-esbuild": "^1.52.1",
+    "serverless-export-env": "^2.2.0",
+    "serverless-export-outputs": "^1.0.2",
+    "serverless-iam-roles-per-function": "^3.2.0",
+    "serverless-lumigo": "^1.14.5",
+    "serverless-plugin-extrinsic-functions": "^1.1.1",
+    "serverless-step-functions": "^3.21.0"
   },
   "dependencies": {
+    "@aws-lambda-powertools/idempotency": "^2.2.0",
+    "@aws-lambda-powertools/logger": "^2.2.0",
+    "@aws-lambda-powertools/tracer": "^2.2.0",
+    "@aws-sdk/client-ssm": "^3.588.0",
+    "@middy/core": "^4.7.0",
+    "@middy/ssm": "^4.7.0",
     "aws4": "^1.13.0",
     "axios": "^1.7.2",
     "chance": "^1.1.11",
